@@ -31,7 +31,9 @@ logger = logging.getLogger(__name__)
 
 class RunPodCodeLlamaLLM(LLM):
     """Custom LangChain LLM wrapper for RunPod CodeLlama"""
-    
+
+    model_path: str = "codellama/CodeLlama-13b-Instruct-hf"
+
     def __init__(self, model_path: str = "codellama/CodeLlama-13b-Instruct-hf"):
         super().__init__()
         self.model_path = model_path
