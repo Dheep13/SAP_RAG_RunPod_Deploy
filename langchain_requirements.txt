@@ -1,0 +1,24 @@
+runpod>=1.5.0
+torch>=2.0.0
+transformers>=4.35.0
+accelerate>=0.24.0
+bitsandbytes>=0.41.0
+
+# LangChain components
+langchain>=0.0.350
+langchain-community>=0.0.10
+
+# Vector database and embeddings
+supabase>=1.2.0
+sentence-transformers>=2.2.2
+psycopg2-binary>=2.9.0
+
+# Core dependencies
+numpy>=1.24.0
+requests>=2.31.0
+sentencepiece>=0.1.99
+protobuf>=3.20.0
+
+# Optional optimizations
+optimum>=1.14.0
+auto-gptq>=0.4.0
