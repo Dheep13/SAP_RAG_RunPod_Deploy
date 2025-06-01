@@ -1,4 +1,3 @@
-@"
 FROM python:3.11-slim
 
 WORKDIR /app
@@ -25,4 +24,3 @@ RUN mkdir -p /cache
 
 # Command to run the handler
 CMD ["python", "-u", "langchain_runpod_rag_handler.py"]
-"@ | Out-File -FilePath Dockerfile -Encoding utf8 -NoNewline
