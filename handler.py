@@ -107,18 +107,22 @@ class OptimizedCodeLlamaLLM(LLM):
     pipeline: Any = None
     generation_config: Any = None
     max_memory_gb: int = 20
+    cache_dir: Optional[str] = None  # Fix: Add this field
+
+    class Config:
+        arbitrary_types_allowed = True  # Allow complex types like model objects
 
     def __init__(self, model_path: str = "codellama/CodeLlama-13b-Instruct-hf", max_memory_gb: int = 20):
         super().__init__()
         self.model_path = model_path
         self.max_memory_gb = max_memory_gb
+        self.cache_dir = None  # Initialize here
         self._setup_cache_dirs()
         self._load_model()
     
     def _setup_cache_dirs(self):
         """Setup cache directories for model storage"""
         cache_dirs = ["/runpod-volume", "/workspace", "/tmp"]
-        self.cache_dir = None
         
         for cache_dir in cache_dirs:
             if os.path.exists(cache_dir) and os.access(cache_dir, os.W_OK):
@@ -148,7 +152,7 @@ class OptimizedCodeLlamaLLM(LLM):
                 self.model_path,
                 trust_remote_code=True,
                 cache_dir=self.cache_dir,
-                use_fast=True  # Use fast tokenizer if available
+                use_fast=True
             )
 
             # Set pad token
@@ -170,7 +174,7 @@ class OptimizedCodeLlamaLLM(LLM):
                 num_gpus = torch.cuda.device_count()
                 max_memory_per_gpu = f"{self.max_memory_gb}GB"
                 max_memory = {i: max_memory_per_gpu for i in range(num_gpus)}
-                max_memory["cpu"] = "8GB"  # Reserve some CPU memory
+                max_memory["cpu"] = "8GB"
             else:
                 max_memory = None
 
@@ -184,8 +188,7 @@ class OptimizedCodeLlamaLLM(LLM):
                 quantization_config=quantization_config,
                 low_cpu_mem_usage=True,
                 max_memory=max_memory,
-                cache_dir=self.cache_dir,
-                attn_implementation="flash_attention_2" if torch.cuda.is_available() else None,
+                cache_dir=self.cache_dir
             )
 
             # Setup generation config
@@ -226,7 +229,7 @@ class OptimizedCodeLlamaLLM(LLM):
                 formatted_prompt,
                 return_tensors="pt",
                 truncation=True,
-                max_length=4096,  # CodeLlama context length
+                max_length=4096,
                 padding=False
             )
             
@@ -244,7 +247,7 @@ class OptimizedCodeLlamaLLM(LLM):
 
             # Decode response
             response = self.tokenizer.decode(
-                outputs[0][inputs['input_ids'].shape[1]:],  # Only new tokens
+                outputs[0][inputs['input_ids'].shape[1]:],
                 skip_special_tokens=True,
                 clean_up_tokenization_spaces=True
             )
@@ -271,7 +274,7 @@ class OptimizedCodeLlamaLLM(LLM):
         except Exception as e:
             logger.error(f"❌ Generation error: {e}")
             return f"I encountered an error: {str(e)}"
-
+        
 class EnhancedSAPRAG:
     """Enhanced SAP RAG system with better error handling and performance"""
     
