@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM runpod/pytorch:2.1.0-py3.10-cuda11.8.0-devel-ubuntu22.04
 
 WORKDIR /app
 
@@ -6,6 +6,8 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     build-essential \
     curl \
+    git \
+    wget \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy and install requirements
@@ -15,13 +17,22 @@ RUN pip install --no-cache-dir -r langchain_requirements.txt
 # Copy your handler code
 COPY langchain_runpod_rag_handler.py .
 
-# Set environment variables for model caching
+# Set environment variables for memory optimization
 ENV TRANSFORMERS_CACHE=/cache
 ENV HF_HOME=/cache
-ENV PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
+ENV PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128,expandable_segments:True
+ENV CUDA_LAUNCH_BLOCKING=1
+ENV TOKENIZERS_PARALLELISM=false
 
-# Create cache directory
-RUN mkdir -p /cache
+# Create cache directory with proper permissions
+RUN mkdir -p /cache && chmod 777 /cache
+
+# Pre-download models to reduce cold start time (optional)
+# RUN python -c "from transformers import AutoTokenizer; AutoTokenizer.from_pretrained('codellama/CodeLlama-13b-Instruct-hf', cache_dir='/cache')"
+# RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('sentence-transformers/all-mpnet-base-v2', cache_folder='/cache')"
+
+# Expose port for health checks
+EXPOSE 8000
 
 # Command to run when the container starts
 CMD ["python", "-u", "langchain_runpod_rag_handler.py"]

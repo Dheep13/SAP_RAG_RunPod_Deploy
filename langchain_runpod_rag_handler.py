@@ -49,35 +49,52 @@ class RunPodCodeLlamaLLM(LLM):
         self._load_model()
     
     def _load_model(self):
-        """Load CodeLlama model locally on RunPod"""
+        """Load CodeLlama model locally on RunPod with memory optimization"""
         try:
             logger.info(f"Loading CodeLlama model: {self.model_path}")
-            
+
+            # Clear GPU cache before loading
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                logger.info(f"GPU Memory before loading: {torch.cuda.memory_allocated()/1024**3:.2f}GB")
+
+            # Load tokenizer first (lightweight)
             self.tokenizer = AutoTokenizer.from_pretrained(
                 self.model_path,
-                trust_remote_code=True
+                trust_remote_code=True,
+                cache_dir="/cache"
             )
-            
+
             if self.tokenizer.pad_token is None:
                 self.tokenizer.pad_token = self.tokenizer.eos_token
-            
-            # Load model with optimizations for RunPod
+
+            # Load model with aggressive memory optimizations
+            logger.info("Loading model with memory optimizations...")
             self.model = AutoModelForCausalLM.from_pretrained(
                 self.model_path,
                 torch_dtype=torch.float16,
                 device_map="auto",
                 trust_remote_code=True,
-                load_in_8bit=True  # Memory optimization
+                load_in_8bit=True,  # 8-bit quantization
+                low_cpu_mem_usage=True,  # Reduce CPU memory usage
+                max_memory={0: "20GB"},  # Reserve memory for other components
+                cache_dir="/cache"
             )
-            
+
+            # Create pipeline with memory-efficient settings
             self.pipeline = pipeline(
                 "text-generation",
                 model=self.model,
                 tokenizer=self.tokenizer,
                 torch_dtype=torch.float16,
-                device_map="auto"
+                device_map="auto",
+                max_length=2048,  # Limit max length to save memory
+                batch_size=1  # Process one at a time
             )
-            
+
+            if torch.cuda.is_available():
+                logger.info(f"GPU Memory after loading: {torch.cuda.memory_allocated()/1024**3:.2f}GB")
+
             logger.info("✅ CodeLlama model loaded successfully for LangChain")
             
         except Exception as e:
@@ -118,22 +135,51 @@ class LangChainSAPRAG:
     """Complete SAP RAG system using LangChain components"""
     
     def __init__(self):
-        """Initialize LangChain RAG system"""
-        
+        """Initialize LangChain RAG system with memory optimization"""
+
         # Environment variables
         self.supabase_url = os.getenv("SUPABASE_URL")
         self.supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_ANON_KEY")
         self.model_path = os.getenv("MODEL_PATH", "codellama/CodeLlama-13b-Instruct-hf")
-        
+
         if not self.supabase_url or not self.supabase_key:
             raise ValueError("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set")
-        
-        # Initialize components
-        self._init_supabase_vectorstore()
-        self._init_llm()
-        self._init_rag_chain()
-        
+
+        # Initialize components sequentially to manage memory
+        logger.info("🚀 Starting sequential component initialization...")
+        self._init_components_sequentially()
+
         logger.info("✅ LangChain SAP RAG system initialized successfully")
+
+    def _init_components_sequentially(self):
+        """Initialize components one by one with memory management"""
+        try:
+            # Step 1: Initialize vector store (lightweight)
+            logger.info("📊 Step 1/3: Initializing Supabase vector store...")
+            self._init_supabase_vectorstore()
+
+            # Step 2: Clear cache and load LLM (heavy)
+            logger.info("🧠 Step 2/3: Loading LLM (this may take a few minutes)...")
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                logger.info(f"GPU Memory before LLM: {torch.cuda.memory_allocated()/1024**3:.2f}GB")
+
+            self._init_llm()
+
+            # Step 3: Initialize RAG chain
+            logger.info("🔗 Step 3/3: Setting up RAG chain...")
+            self._init_rag_chain()
+
+            if torch.cuda.is_available():
+                logger.info(f"GPU Memory after initialization: {torch.cuda.memory_allocated()/1024**3:.2f}GB")
+
+        except torch.cuda.OutOfMemoryError as e:
+            logger.error(f"❌ GPU OOM during initialization: {e}")
+            logger.info("🔄 Attempting CPU fallback mode...")
+            self._fallback_to_cpu_mode()
+        except Exception as e:
+            logger.error(f"❌ Component initialization failed: {e}")
+            raise
     
     def _init_supabase_vectorstore(self):
         """Initialize Supabase vector store with LangChain"""
@@ -145,17 +191,46 @@ class LangChainSAPRAG:
             test_response = self.supabase_client.table('langchain_documents').select('id').limit(1).execute()
             logger.info(f"✅ Supabase connected - Found {len(test_response.data)} test documents")
             
-            # Embeddings model
+            # Embeddings model - always use CPU to save GPU memory
             self.embeddings = HuggingFaceEmbeddings(
                 model_name="sentence-transformers/all-mpnet-base-v2",
-                model_kwargs={'device': 'cpu'}  # Use CPU for embeddings to save GPU memory
+                model_kwargs={'device': 'cpu'},
+                cache_folder="/cache"
             )
-            
+
             logger.info("✅ Supabase vector store initialized")
-            
+
         except Exception as e:
             logger.error(f"❌ Supabase vector store failed: {e}")
             raise
+
+    def _fallback_to_cpu_mode(self):
+        """Fallback to CPU-only mode if GPU OOM occurs"""
+        try:
+            logger.warning("🔄 Initializing CPU fallback mode...")
+
+            # Clear GPU memory
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+            # Initialize a smaller model or CPU-only mode
+            self.llm = RunPodCodeLlamaLLM("microsoft/DialoGPT-medium")  # Smaller fallback model
+
+            # Re-initialize embeddings on CPU (already done)
+            self.embeddings = HuggingFaceEmbeddings(
+                model_name="sentence-transformers/all-MiniLM-L6-v2",  # Smaller embedding model
+                model_kwargs={'device': 'cpu'},
+                cache_folder="/cache"
+            )
+
+            # Initialize RAG chain with CPU components
+            self._init_rag_chain()
+
+            logger.info("✅ CPU fallback mode initialized successfully")
+
+        except Exception as e:
+            logger.error(f"❌ CPU fallback failed: {e}")
+            raise RuntimeError("Both GPU and CPU initialization failed")
     
     def _init_llm(self):
         """Initialize LLM (CodeLlama)"""
