@@ -415,38 +415,125 @@ Answer:"""
         logger.info("✅ SAP prompt template configured")
 
     def search_documents(self, query: str, k: int = 5) -> List[Dict]:
-        """FIXED: Vector-based search using LangChain SupabaseVectorStore"""
+        """Fixed vector search with fallback strategy"""
         try:
             logger.info(f"🔍 Performing vector search for: '{query}'")
             
-            # Create SupabaseVectorStore instance (same as ingestion pipeline)
+            # Create SupabaseVectorStore instance
             vector_store = SupabaseVectorStore(
                 client=self.supabase_client,
                 embedding=self.embeddings,
-                table_name="langchain_documents",  # Same table as ingestion
-                query_name="match_documents"       # Vector similarity function
+                table_name="langchain_documents",
+                query_name="match_documents"
             )
             
-            # Use vector similarity search with scores
-            docs_with_scores = vector_store.similarity_search_with_score(query, k=k)
+            # TRY METHOD 1: similarity_search_with_score() (ideal but sometimes fails)
+            try:
+                docs_with_scores = vector_store.similarity_search_with_score(query, k=k)
+                
+                if docs_with_scores:
+                    results = []
+                    for doc, score in docs_with_scores:
+                        results.append({
+                            'id': doc.metadata.get('id', ''),
+                            'content': doc.page_content,
+                            'metadata': doc.metadata,
+                            'relevance_score': float(score * 20),  # Scale score
+                            'similarity': float(1 - score)  # Convert distance to similarity
+                        })
+                    
+                    logger.info(f"✅ similarity_search_with_score found {len(results)} documents")
+                    return results
+                
+            except Exception as score_error:
+                logger.warning(f"⚠️ similarity_search_with_score failed: {score_error}")
             
-            results = []
-            for doc, score in docs_with_scores:
-                # Convert LangChain document format to our expected format
-                results.append({
-                    'id': doc.metadata.get('id', ''),
-                    'content': doc.page_content,
-                    'metadata': doc.metadata,
-                    'relevance_score': float(score * 20),  # Scale score for compatibility
-                    'similarity': float(1 - score)  # Convert distance to similarity
-                })
+            # FALLBACK METHOD 2: similarity_search() (works perfectly)
+            try:
+                docs = vector_store.similarity_search(query, k=k)
+                
+                if docs:
+                    results = []
+                    for i, doc in enumerate(docs):
+                        # Generate synthetic relevance score based on position
+                        relevance_score = max(20 - (i * 3), 5)  # Decreasing score by position
+                        
+                        results.append({
+                            'id': doc.metadata.get('id', ''),
+                            'content': doc.page_content,
+                            'metadata': doc.metadata,
+                            'relevance_score': float(relevance_score),
+                            'similarity': float(1.0 - (i * 0.1))  # Synthetic similarity
+                        })
+                    
+                    logger.info(f"✅ similarity_search found {len(results)} documents")
+                    return results
+                
+            except Exception as search_error:
+                logger.warning(f"⚠️ similarity_search failed: {search_error}")
             
-            logger.info(f"✅ Vector search found {len(results)} documents")
-            return results
+            # FALLBACK METHOD 3: Direct RPC call (manual vector search)
+            try:
+                query_embedding = self.embeddings.embed_query(query)
+                
+                response = self.supabase_client.rpc(
+                    'match_documents',
+                    {
+                        'query_embedding': query_embedding,
+                        'match_threshold': 0.7,
+                        'match_count': k
+                    }
+                ).execute()
+                
+                if response.data:
+                    results = []
+                    for doc in response.data:
+                        results.append({
+                            'id': doc.get('id'),
+                            'content': doc.get('content', ''),
+                            'metadata': doc.get('metadata', {}),
+                            'relevance_score': float(doc.get('similarity', 0) * 20),
+                            'similarity': float(doc.get('similarity', 0))
+                        })
+                    
+                    logger.info(f"✅ Direct RPC search found {len(results)} documents")
+                    return results
+                    
+            except Exception as rpc_error:
+                logger.warning(f"⚠️ Direct RPC search failed: {rpc_error}")
             
+            # FALLBACK METHOD 4: Text-based search (last resort)
+            try:
+                # Clean query for text search
+                clean_query = query.replace('[', '').replace(']', '').strip()
+                
+                response = self.supabase_client.table('langchain_documents').select('*').or_(
+                    f'content.ilike.%{clean_query}%,metadata->>title.ilike.%{clean_query}%'
+                ).limit(k).execute()
+                
+                if response.data:
+                    results = []
+                    for i, doc in enumerate(response.data):
+                        results.append({
+                            'id': doc.get('id'),
+                            'content': doc.get('content', ''),
+                            'metadata': doc.get('metadata', {}),
+                            'relevance_score': float(15 - i),  # Basic scoring
+                            'similarity': float(0.8 - (i * 0.1))
+                        })
+                    
+                    logger.info(f"✅ Text search found {len(results)} documents")
+                    return results
+                    
+            except Exception as text_error:
+                logger.error(f"❌ Text search failed: {text_error}")
+            
+            # If all methods fail
+            logger.warning("❌ All search methods failed, returning empty results")
+            return []
+                
         except Exception as e:
-            logger.error(f"❌ Vector search failed: {e}")
-            # Return empty results instead of crashing
+            logger.error(f"❌ Vector search system failed: {e}")
             return []
 
     def answer_question(self, question: str) -> Dict:
