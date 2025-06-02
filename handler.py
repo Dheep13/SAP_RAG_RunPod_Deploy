@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Optimized LangChain + RunPod + Supabase SAP RAG Integration
-Enhanced for CodeLlama 13B with better memory management and error handling
+Complete Fixed SAP RAG Handler
+Compatible with LangChain ingestion pipeline and vector search
 """
 
 import runpod
@@ -23,7 +23,7 @@ try:
 except ImportError:
     try:
         from langchain_community.embeddings import HuggingFaceEmbeddings
-        from langchain.vectorstores import SupabaseVectorStore
+        from langchain_community.vectorstores import SupabaseVectorStore
         from langchain.llms.base import LLM
         from langchain.prompts import PromptTemplate
         from langchain.schema import Document
@@ -107,16 +107,16 @@ class OptimizedCodeLlamaLLM(LLM):
     pipeline: Any = None
     generation_config: Any = None
     max_memory_gb: int = 20
-    cache_dir: Optional[str] = None  # Fix: Add this field
+    cache_dir: Optional[str] = None
 
     class Config:
-        arbitrary_types_allowed = True  # Allow complex types like model objects
+        arbitrary_types_allowed = True
 
     def __init__(self, model_path: str = "codellama/CodeLlama-13b-Instruct-hf", max_memory_gb: int = 20):
         super().__init__()
         self.model_path = model_path
         self.max_memory_gb = max_memory_gb
-        self.cache_dir = None  # Initialize here
+        self.cache_dir = None
         self._setup_cache_dirs()
         self._load_model()
     
@@ -274,9 +274,9 @@ class OptimizedCodeLlamaLLM(LLM):
         except Exception as e:
             logger.error(f"❌ Generation error: {e}")
             return f"I encountered an error: {str(e)}"
-        
+
 class EnhancedSAPRAG:
-    """Enhanced SAP RAG system with better error handling and performance"""
+    """Enhanced SAP RAG system compatible with LangChain ingestion pipeline"""
     
     def __init__(self):
         """Initialize with robust error handling"""
@@ -309,7 +309,7 @@ class EnhancedSAPRAG:
             logger.info("📊 Initializing Supabase connection...")
             self._init_supabase()
 
-            # 2. Initialize embeddings (CPU-based to save GPU memory)
+            # 2. Initialize embeddings (FIXED - Match ingestion pipeline)
             logger.info("📄 Initializing embeddings...")
             self._init_embeddings()
 
@@ -339,23 +339,22 @@ class EnhancedSAPRAG:
             raise
 
     def _init_embeddings(self):
-        """Initialize embeddings model on CPU"""
+        """Initialize embeddings to MATCH ingestion pipeline"""
         try:
-            # Use faster, smaller model for embeddings
-            model_name = "sentence-transformers/all-MiniLM-L6-v2"  # Faster than all-mpnet-base-v2
+            # FIXED: Use same model and settings as ingestion pipeline
+            model_name = "sentence-transformers/all-mpnet-base-v2"  # Match ingestion
             
             cache_dir = getattr(self, 'cache_dir', None) or "/tmp/embeddings_cache"
             os.makedirs(cache_dir, exist_ok=True)
             
-            # In your handler.py, update this:
             self.embeddings = HuggingFaceEmbeddings(
-                model_name="sentence-transformers/all-mpnet-base-v2",  # Match ingestion
-                model_kwargs={'device': 'cpu'},
-                encode_kwargs={'normalize_embeddings': True},  # Match normalization
+                model_name=model_name,
+                model_kwargs={'device': 'cpu'},  # Always use CPU for embeddings
+                encode_kwargs={'normalize_embeddings': True},  # CRITICAL: Match ingestion
                 cache_folder=cache_dir
             )
             
-            logger.info(f"✅ Embeddings initialized: {model_name}")
+            logger.info(f"✅ Embeddings initialized: {model_name} (768 dimensions)")
             
         except Exception as e:
             logger.error(f"❌ Embeddings initialization failed: {e}")
@@ -416,101 +415,38 @@ Answer:"""
         logger.info("✅ SAP prompt template configured")
 
     def search_documents(self, query: str, k: int = 5) -> List[Dict]:
-        """Enhanced document search with better ranking"""
+        """FIXED: Vector-based search using LangChain SupabaseVectorStore"""
         try:
-            # Multi-strategy search
-            search_terms = []
+            logger.info(f"🔍 Performing vector search for: '{query}'")
             
-            # Add original query
-            search_terms.append(query)
+            # Create SupabaseVectorStore instance (same as ingestion pipeline)
+            vector_store = SupabaseVectorStore(
+                client=self.supabase_client,
+                embedding=self.embeddings,
+                table_name="langchain_documents",  # Same table as ingestion
+                query_name="match_documents"       # Vector similarity function
+            )
             
-            # Add SAP-specific variations
-            sap_keywords = ['CPI', 'iFlow', 'API Management', 'Integration Suite']
-            for keyword in sap_keywords:
-                if keyword.lower() in query.lower():
-                    search_terms.append(f"{keyword} {query}")
+            # Use vector similarity search with scores
+            docs_with_scores = vector_store.similarity_search_with_score(query, k=k)
             
-            # Build search conditions
-            search_conditions = []
-            for term in search_terms[:3]:  # Limit to avoid too complex queries
-                search_conditions.extend([
-                    f'content.ilike.%{term}%',
-                    f'metadata->>title.ilike.%{term}%'
-                ])
-            
-            # Execute search
-            or_condition = f"({','.join(search_conditions)})"
-            response = self.supabase_client.table('langchain_documents').select('*').or_(
-                or_condition
-            ).limit(k * 3).execute()  # Get more to rank better
-            
-            if not response.data:
-                # Fallback: search individual words
-                words = [w for w in query.split() if len(w) > 2]
-                if words:
-                    fallback_conditions = [f'content.ilike.%{word}%' for word in words[:3]]
-                    or_condition = f"({','.join(fallback_conditions)})"
-                    response = self.supabase_client.table('langchain_documents').select('*').or_(
-                        or_condition
-                    ).limit(k).execute()
-            
-            if not response.data:
-                return []
-
-            # Enhanced relevance scoring
             results = []
-            query_lower = query.lower()
-            query_words = set(query_lower.split())
+            for doc, score in docs_with_scores:
+                # Convert LangChain document format to our expected format
+                results.append({
+                    'id': doc.metadata.get('id', ''),
+                    'content': doc.page_content,
+                    'metadata': doc.metadata,
+                    'relevance_score': float(score * 20),  # Scale score for compatibility
+                    'similarity': float(1 - score)  # Convert distance to similarity
+                })
             
-            for doc in response.data:
-                content = doc.get('content', '').lower()
-                metadata = doc.get('metadata', {})
-                title = metadata.get('title', '').lower()
-                source_file = metadata.get('source_file', '').lower()
-                
-                score = 0
-                
-                # Exact phrase matches (highest priority)
-                if query_lower in title:
-                    score += 15
-                if query_lower in content:
-                    score += 10
-                
-                # SAP-specific terms boost
-                sap_terms = ['cpi', 'iflow', 'api management', 'integration suite', 'groovy']
-                for term in sap_terms:
-                    if term in query_lower and term in content:
-                        score += 5
-                
-                # Word matches
-                title_words = set(title.split())
-                content_words = set(content.split())
-                
-                title_matches = len(query_words.intersection(title_words))
-                content_matches = len(query_words.intersection(content_words))
-                
-                score += title_matches * 4
-                score += content_matches * 2
-                
-                # Document type boost
-                if 'tutorial' in source_file or 'guide' in source_file:
-                    score += 3
-                
-                if score > 0:
-                    results.append({
-                        'id': doc.get('id'),
-                        'content': doc.get('content', ''),
-                        'metadata': metadata,
-                        'relevance_score': score,
-                        'similarity': min(score / 20.0, 1.0)  # Normalize
-                    })
-            
-            # Sort and return top results
-            results.sort(key=lambda x: x['relevance_score'], reverse=True)
-            return results[:k]
+            logger.info(f"✅ Vector search found {len(results)} documents")
+            return results
             
         except Exception as e:
-            logger.error(f"❌ Document search failed: {e}")
+            logger.error(f"❌ Vector search failed: {e}")
+            # Return empty results instead of crashing
             return []
 
     def answer_question(self, question: str) -> Dict:
@@ -520,7 +456,7 @@ Answer:"""
         try:
             logger.info(f"🔍 Processing: {question[:50]}...")
             
-            # Search documents
+            # Search documents using vector similarity
             documents = self.search_documents(question, k=5)
             
             if not documents:
@@ -533,7 +469,7 @@ Answer:"""
                     "processing_time": f"{time.time() - start_time:.2f}s"
                 }
 
-            # Build context from top documents
+            # Build context from top documents (LangChain format)
             context_parts = []
             for i, doc in enumerate(documents[:3], 1):
                 metadata = doc.get('metadata', {})
@@ -542,6 +478,7 @@ Answer:"""
                 context_part = f"""
 Document {i}: {title}
 Source: {metadata.get('source_file', 'Unknown')}
+SAP Component: {metadata.get('sap_component', 'Unknown')}
 Relevance: {doc.get('relevance_score', 0)}
 
 Content:
@@ -553,13 +490,13 @@ Content:
             
             context = "\n".join(context_parts)
             
-            # Generate answer
+            # Generate answer using CodeLlama
             prompt_text = self.prompt.format(context=context, question=question)
             answer = self.llm._call(prompt_text)
             
             processing_time = time.time() - start_time
             
-            # Format response
+            # Format response with proper metadata extraction
             response = {
                 "answer": answer,
                 "question": question,
@@ -570,6 +507,8 @@ Content:
                     {
                         "title": doc.get('metadata', {}).get('title', 'SAP Documentation'),
                         "source_file": doc.get('metadata', {}).get('source_file', 'Unknown'),
+                        "sap_component": doc.get('metadata', {}).get('sap_component', 'Unknown'),
+                        "document_type": doc.get('metadata', {}).get('document_type', 'documentation'),
                         "relevance": doc.get('relevance_score', 0),
                         "preview": doc.get('content', '')[:150] + "..."
                     }
@@ -691,7 +630,29 @@ def health_check():
     
     return health
 
-# Always start serverless in production
+# Main execution
 if __name__ == "__main__":
-    logger.info("🚀 Starting RunPod serverless handler...")
-    runpod.serverless.start({"handler": handler})
+    # Check if running in RunPod environment
+    if os.getenv('RUNPOD_ENDPOINT_ID'):
+        # Production: Start RunPod serverless
+        logger.info("🚀 Starting RunPod serverless handler...")
+        runpod.serverless.start({"handler": handler})
+    else:
+        # Local testing
+        test_event = {
+            "input": {
+                "query": "How do I create a secure CPI iFlow with proper error handling?",
+                "component": "CPI"
+            }
+        }
+        
+        print("🧪 Testing Enhanced SAP RAG Handler locally...")
+        print("=" * 60)
+        
+        response = handler(test_event)
+        print(json.dumps(response, indent=2))
+        
+        print("\n" + "=" * 60)
+        print("🏥 Health Check:")
+        health = health_check()
+        print(json.dumps(health, indent=2))
