@@ -1,39 +1,75 @@
-FROM runpod/pytorch:2.1.0-py3.10-cuda11.8.0-devel-ubuntu22.04
+# Optimized Dockerfile for SAP RAG with CodeLlama 13B
+FROM runpod/pytorch:2.2.0-py3.10-cuda12.1.1-devel-ubuntu22.04
 
-WORKDIR /app
+# Set working directory
+WORKDIR /
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    curl \
-    git \
-    wget \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy and install requirements
-COPY langchain_requirements.txt .
-RUN pip install --no-cache-dir -r langchain_requirements.txt
-
-# Copy your handler code and utilities
-COPY langchain_runpod_rag_handler.py .
-COPY check_storage.py .
-
-# Set environment variables for memory optimization
-ENV TRANSFORMERS_CACHE=/runpod-volume
-ENV HF_HOME=/runpod-volume
-ENV PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128,expandable_segments:True
-ENV CUDA_LAUNCH_BLOCKING=1
+# Environment variables for optimization
+ENV PYTHONPATH="${PYTHONPATH}:/workspace:/app"
+ENV PYTHONUNBUFFERED=1
+ENV HF_HOME="/runpod-volume/huggingface"
+ENV TRANSFORMERS_CACHE="/runpod-volume/transformers"
+ENV TORCH_HOME="/runpod-volume/torch"
+ENV HF_DATASETS_CACHE="/runpod-volume/datasets"
 ENV TOKENIZERS_PARALLELISM=false
 
-# Create cache directory with proper permissions (fallback if volume not mounted)
-RUN mkdir -p /runpod-volume && chmod 777 /runpod-volume
+# Create cache directories
+RUN mkdir -p /runpod-volume/huggingface /runpod-volume/transformers /runpod-volume/torch /runpod-volume/datasets
 
-# Pre-download models to reduce cold start time (optional)
-# RUN python -c "from transformers import AutoTokenizer; AutoTokenizer.from_pretrained('codellama/CodeLlama-13b-Instruct-hf', cache_dir='/runpod-volume')"
-# RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('sentence-transformers/all-mpnet-base-v2', cache_folder='/runpod-volume')"
+# Update system and install dependencies
+RUN apt-get update && apt-get install -y \
+    git \
+    wget \
+    curl \
+    vim \
+    htop \
+    nvtop \
+    tree \
+    && rm -rf /var/lib/apt/lists/*
 
-# Expose port for health checks
-EXPOSE 8000
+# Upgrade pip and install build tools
+RUN python -m pip install --upgrade pip setuptools wheel
 
-# Command to run when the container starts
-CMD ["python", "-u", "langchain_runpod_rag_handler.py"]
+# Install PyTorch and related packages first (use exact versions for stability)
+RUN pip install --no-cache-dir \
+    torch==2.2.0 \
+    torchvision==0.17.0 \
+    torchaudio==2.2.0 \
+    accelerate==0.28.0
+
+# Install transformers and quantization libraries
+RUN pip install --no-cache-dir \
+    transformers==4.40.0 \
+    bitsandbytes==0.43.0 \
+    flash-attn==2.5.6 \
+    tokenizers==0.19.1
+
+# Install LangChain ecosystem (compatible versions)
+RUN pip install --no-cache-dir \
+    langchain==0.1.20 \
+    langchain-core==0.1.52 \
+    langchain-community==0.0.38 \
+    langchain-huggingface==0.0.3
+
+# Install embeddings and vector stores
+RUN pip install --no-cache-dir \
+    sentence-transformers==2.7.0 \
+    faiss-cpu==1.8.0
+
+# Install Supabase and database clients
+RUN pip install --no-cache-dir \
+    supabase==2.4.2 \
+    psycopg2-binary==2.9.9 \
+    postgrest==0.16.6
+
+# Install additional ML/data science packages
+RUN pip install --no-cache-dir \
+    numpy==1.24.4 \
+    pandas==2.0.3 \
+    scikit-learn==1.3.2 \
+    scipy==1.11.4
+
+# Install utility packages
+RUN pip install --no-cache-dir \
+    requests==2.31.0 \
+    python-dotenv==1.0.1 \
