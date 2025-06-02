@@ -9,11 +9,17 @@ import os
 import json
 import logging
 import time
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 
-# LangChain imports
-from langchain.vectorstores import SupabaseVectorStore
-from langchain.embeddings import HuggingFaceEmbeddings
+# LangChain imports (updated for v0.2+)
+try:
+    from langchain_community.vectorstores import SupabaseVectorStore
+    from langchain_community.embeddings import HuggingFaceEmbeddings
+except ImportError:
+    # Fallback for older versions
+    from langchain.vectorstores import SupabaseVectorStore
+    from langchain.embeddings import HuggingFaceEmbeddings
+
 from langchain.llms.base import LLM
 from langchain.chains import RetrievalQA
 from langchain.prompts import PromptTemplate
@@ -33,6 +39,9 @@ class RunPodCodeLlamaLLM(LLM):
     """Custom LangChain LLM wrapper for RunPod CodeLlama"""
 
     model_path: str = "codellama/CodeLlama-13b-Instruct-hf"
+    tokenizer: Any = None
+    model: Any = None
+    pipeline: Any = None
 
     def __init__(self, model_path: str = "codellama/CodeLlama-13b-Instruct-hf"):
         super().__init__()
