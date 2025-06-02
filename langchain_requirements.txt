@@ -4,11 +4,11 @@ transformers>=4.35.0
 accelerate>=0.24.0
 bitsandbytes>=0.41.0
 
-# LangChain components (updated for compatibility)
-langchain>=0.1.0,<0.3.0
-langchain-community>=0.0.20
-langchain-core>=0.1.0
-langchain-huggingface>=0.1.0
+# LangChain components (all pinned to a compatible 0.2.x/0.3.x set)
+langchain==0.2.17
+langchain-community==0.3.24
+langchain-core==0.2.43
+langchain-huggingface==0.2.0
 
 # Vector database and embeddings
 supabase>=1.2.0
@@ -25,6 +25,6 @@ protobuf>=3.20.0
 python-dotenv>=1.0.0
 pydantic>=1.10.0,<3.0.0
 
-# Optional optimizations (may fail on some systems)
+# Optional optimizations (no change needed here unless you hit a later conflict)
 # optimum>=1.14.0
 # auto-gptq>=0.4.0
