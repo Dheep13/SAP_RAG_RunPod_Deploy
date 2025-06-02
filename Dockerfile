@@ -73,3 +73,25 @@ RUN pip install --no-cache-dir \
 RUN pip install --no-cache-dir \
     requests==2.31.0 \
     python-dotenv==1.0.1 \
+    pydantic==2.6.4 \
+    tqdm==4.66.2 \
+    datasets==2.18.0 \
+    huggingface-hub==0.22.2
+
+# Install RunPod SDK
+RUN pip install --no-cache-dir runpod==1.6.0
+
+# Create application directory
+RUN mkdir -p /app
+
+# Copy application files
+COPY . /app/
+
+# Set working directory to app
+WORKDIR /app
+
+# Make handler executable
+RUN chmod +x handler.py
+
+# Default command to run the handler
+CMD ["python", "handler.py"]
