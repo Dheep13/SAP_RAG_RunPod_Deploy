@@ -347,10 +347,11 @@ class EnhancedSAPRAG:
             cache_dir = getattr(self, 'cache_dir', None) or "/tmp/embeddings_cache"
             os.makedirs(cache_dir, exist_ok=True)
             
+            # In your handler.py, update this:
             self.embeddings = HuggingFaceEmbeddings(
-                model_name=model_name,
-                model_kwargs={'device': 'cpu'},  # Always use CPU for embeddings
-                encode_kwargs={'normalize_embeddings': True},
+                model_name="sentence-transformers/all-mpnet-base-v2",  # Match ingestion
+                model_kwargs={'device': 'cpu'},
+                encode_kwargs={'normalize_embeddings': True},  # Match normalization
                 cache_folder=cache_dir
             )
             
