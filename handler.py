@@ -690,28 +690,7 @@ def health_check():
     
     return health
 
-# Main execution
+# Always start serverless in production
 if __name__ == "__main__":
-    # Local testing
-    test_event = {
-        "input": {
-            "query": "How do I create a secure CPI iFlow with proper error handling?",
-            "component": "CPI"
-        }
-    }
-    
-    print("🧪 Testing Enhanced SAP RAG Handler locally...")
-    print("=" * 60)
-    
-    response = handler(test_event)
-    print(json.dumps(response, indent=2))
-    
-    print("\n" + "=" * 60)
-    print("🏥 Health Check:")
-    health = health_check()
-    print(json.dumps(health, indent=2))
-    
-else:
-    # Production: Start RunPod serverless
     logger.info("🚀 Starting RunPod serverless handler...")
     runpod.serverless.start({"handler": handler})
