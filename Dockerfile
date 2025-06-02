@@ -14,8 +14,9 @@ RUN apt-get update && apt-get install -y \
 COPY langchain_requirements.txt .
 RUN pip install --no-cache-dir -r langchain_requirements.txt
 
-# Copy your handler code
+# Copy your handler code and utilities
 COPY langchain_runpod_rag_handler.py .
+COPY check_storage.py .
 
 # Set environment variables for memory optimization
 ENV TRANSFORMERS_CACHE=/runpod-volume

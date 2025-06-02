@@ -9,6 +9,8 @@ import os
 import json
 import logging
 import time
+import shutil
+import subprocess
 from typing import List, Dict, Optional, Any
 
 # LangChain imports (updated for v0.2+)
@@ -39,6 +41,46 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+def check_storage_space():
+    """Check available storage space on all mounted volumes"""
+    storage_info = {}
+
+    try:
+        # Check main filesystem
+        total, used, free = shutil.disk_usage("/")
+        storage_info["/"] = {
+            "total_gb": round(total / (1024**3), 2),
+            "used_gb": round(used / (1024**3), 2),
+            "free_gb": round(free / (1024**3), 2),
+            "usage_percent": round((used / total) * 100, 1)
+        }
+
+        # Check runpod volume if it exists
+        if os.path.exists("/runpod-volume"):
+            total, used, free = shutil.disk_usage("/runpod-volume")
+            storage_info["/runpod-volume"] = {
+                "total_gb": round(total / (1024**3), 2),
+                "used_gb": round(used / (1024**3), 2),
+                "free_gb": round(free / (1024**3), 2),
+                "usage_percent": round((used / total) * 100, 1)
+            }
+        else:
+            storage_info["/runpod-volume"] = {"status": "NOT_MOUNTED"}
+
+        # Check if volume is properly mounted
+        try:
+            result = subprocess.run(['df', '-h'], capture_output=True, text=True, timeout=10)
+            storage_info["df_output"] = result.stdout
+        except:
+            storage_info["df_output"] = "df command failed"
+
+        logger.info(f"💾 Storage Info: {json.dumps(storage_info, indent=2)}")
+        return storage_info
+
+    except Exception as e:
+        logger.error(f"❌ Error checking storage: {e}")
+        return {"error": str(e)}
 
 class RunPodCodeLlamaLLM(LLM):
     """Custom LangChain LLM wrapper for RunPod CodeLlama"""
@@ -150,6 +192,10 @@ class LangChainSAPRAG:
     
     def __init__(self):
         """Initialize LangChain RAG system with memory optimization"""
+
+        # Check storage space first
+        logger.info("💾 Checking storage space...")
+        storage_info = check_storage_space()
 
         # Environment variables
         self.supabase_url = os.getenv("SUPABASE_URL")
@@ -539,7 +585,10 @@ def handler(event):
 def health_check():
     """Health check for the LangChain system"""
     global rag_system
-    
+
+    # Get storage info
+    storage_info = check_storage_space()
+
     return {
         "status": "healthy",
         "rag_initialized": rag_system is not None,
@@ -547,7 +596,8 @@ def health_check():
         "gpu_name": torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU",
         "supabase_url": os.getenv("SUPABASE_URL", "Not set")[:50] + "...",
         "model_path": os.getenv("MODEL_PATH", "Default"),
-        "langchain_version": "integrated"
+        "langchain_version": "integrated",
+        "storage": storage_info
     }
 
 # Main execution
