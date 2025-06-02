@@ -14,11 +14,16 @@ from typing import List, Dict, Optional, Any
 # LangChain imports (updated for v0.2+)
 try:
     from langchain_community.vectorstores import SupabaseVectorStore
-    from langchain_community.embeddings import HuggingFaceEmbeddings
+    from langchain_huggingface import HuggingFaceEmbeddings
 except ImportError:
-    # Fallback for older versions
-    from langchain.vectorstores import SupabaseVectorStore
-    from langchain.embeddings import HuggingFaceEmbeddings
+    try:
+        # Try community version
+        from langchain_community.embeddings import HuggingFaceEmbeddings
+        from langchain.vectorstores import SupabaseVectorStore
+    except ImportError:
+        # Fallback for older versions
+        from langchain.vectorstores import SupabaseVectorStore
+        from langchain.embeddings import HuggingFaceEmbeddings
 
 from langchain.llms.base import LLM
 from langchain.chains import RetrievalQA
@@ -62,7 +67,7 @@ class RunPodCodeLlamaLLM(LLM):
             self.tokenizer = AutoTokenizer.from_pretrained(
                 self.model_path,
                 trust_remote_code=True,
-                cache_dir="/cache"
+                cache_dir="/runpod-volume"
             )
 
             if self.tokenizer.pad_token is None:
@@ -70,15 +75,24 @@ class RunPodCodeLlamaLLM(LLM):
 
             # Load model with aggressive memory optimizations
             logger.info("Loading model with memory optimizations...")
+
+            # Proper quantization configuration (fixes deprecation warning)
+            from transformers import BitsAndBytesConfig
+            quantization_config = BitsAndBytesConfig(
+                load_in_8bit=True,
+                llm_int8_threshold=6.0,
+                llm_int8_has_fp16_weight=False
+            )
+
             self.model = AutoModelForCausalLM.from_pretrained(
                 self.model_path,
                 torch_dtype=torch.float16,
                 device_map="auto",
                 trust_remote_code=True,
-                load_in_8bit=True,  # 8-bit quantization
+                quantization_config=quantization_config,  # Use proper config
                 low_cpu_mem_usage=True,  # Reduce CPU memory usage
-                max_memory={0: "20GB"},  # Reserve memory for other components
-                cache_dir="/cache"
+                max_memory={0: "25GB"},  # Increased for 30GB volume
+                cache_dir="/runpod-volume"  # Use proper volume path
             )
 
             # Create pipeline with memory-efficient settings
@@ -195,7 +209,7 @@ class LangChainSAPRAG:
             self.embeddings = HuggingFaceEmbeddings(
                 model_name="sentence-transformers/all-mpnet-base-v2",
                 model_kwargs={'device': 'cpu'},
-                cache_folder="/cache"
+                cache_folder="/runpod-volume"
             )
 
             logger.info("✅ Supabase vector store initialized")
@@ -220,7 +234,7 @@ class LangChainSAPRAG:
             self.embeddings = HuggingFaceEmbeddings(
                 model_name="sentence-transformers/all-MiniLM-L6-v2",  # Smaller embedding model
                 model_kwargs={'device': 'cpu'},
-                cache_folder="/cache"
+                cache_folder="/runpod-volume"
             )
 
             # Initialize RAG chain with CPU components

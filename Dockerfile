@@ -18,18 +18,18 @@ RUN pip install --no-cache-dir -r langchain_requirements.txt
 COPY langchain_runpod_rag_handler.py .
 
 # Set environment variables for memory optimization
-ENV TRANSFORMERS_CACHE=/cache
-ENV HF_HOME=/cache
+ENV TRANSFORMERS_CACHE=/runpod-volume
+ENV HF_HOME=/runpod-volume
 ENV PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128,expandable_segments:True
 ENV CUDA_LAUNCH_BLOCKING=1
 ENV TOKENIZERS_PARALLELISM=false
 
-# Create cache directory with proper permissions
-RUN mkdir -p /cache && chmod 777 /cache
+# Create cache directory with proper permissions (fallback if volume not mounted)
+RUN mkdir -p /runpod-volume && chmod 777 /runpod-volume
 
 # Pre-download models to reduce cold start time (optional)
-# RUN python -c "from transformers import AutoTokenizer; AutoTokenizer.from_pretrained('codellama/CodeLlama-13b-Instruct-hf', cache_dir='/cache')"
-# RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('sentence-transformers/all-mpnet-base-v2', cache_folder='/cache')"
+# RUN python -c "from transformers import AutoTokenizer; AutoTokenizer.from_pretrained('codellama/CodeLlama-13b-Instruct-hf', cache_dir='/runpod-volume')"
+# RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('sentence-transformers/all-mpnet-base-v2', cache_folder='/runpod-volume')"
 
 # Expose port for health checks
 EXPOSE 8000
