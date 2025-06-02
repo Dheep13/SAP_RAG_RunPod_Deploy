@@ -76,7 +76,7 @@ RUN pip install --no-cache-dir \
     pydantic==2.6.4 \
     tqdm==4.66.2 \
     datasets==2.18.0 \
-    huggingface-hub==0.22.2
+    huggingface-hub>=0.30.0
 
 # Install RunPod SDK
 RUN pip install --no-cache-dir runpod==1.6.0
